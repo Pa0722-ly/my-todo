@@ -1,0 +1,452 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Daily Check — 任务打勾与计时</title>
+  <link rel="manifest" href="manifest.json" />
+  <meta name="theme-color" content="#1f2937" />
+  <style>
+    :root{
+      --bg:#f8fafc; --panel:#ffffff; --text:#0f172a; --accent:#06b6d4; --muted:#64748b;
+    }
+    [data-theme="dark"]{ --bg:#0b1220; --panel:#081126; --text:#e6eef8; --accent:#38bdf8; --muted:#9aa8bf; }
+    *{box-sizing:border-box}
+    body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial;background:var(--bg);color:var(--text);padding:16px}
+    .app{max-width:940px;margin:0 auto}
+    header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+    h1{font-size:1.25rem;margin:0}
+    .controls{display:flex;gap:8px;align-items:center}
+    button, input[type="number"], input[type="text"]{font:inherit}
+    .panel{background:var(--panel);border-radius:12px;padding:12px;box-shadow:0 2px 10px rgba(2,6,23,0.06);margin-bottom:12px}
+    .task-row{display:flex;align-items:center;gap:8px;padding:8px;border-radius:8px}
+    .task-row + .task-row{margin-top:6px}
+    .task-text{flex:1}
+    .small{font-size:0.85rem;color:var(--muted)}
+    .btn{background:var(--accent);color:white;border:none;padding:8px 10px;border-radius:8px;cursor:pointer}
+    .ghost{background:transparent;border:1px solid rgba(0,0,0,0.08);padding:6px;border-radius:8px}
+    .stats{display:flex;gap:12px;flex-wrap:wrap}
+    .stat{flex:1;min-width:140px}
+    .timer{display:flex;gap:8px;align-items:center}
+    .confetti{position:fixed;left:0;right:0;top:0;bottom:0;pointer-events:none;overflow:hidden}
+    .emoji{position:absolute;font-size:28px;animation:fall 1200ms linear both}
+    @keyframes fall{from{transform:translateY(-20vh) rotate(0)}to{transform:translateY(110vh) rotate(360deg)}}
+    footer{font-size:0.82rem;color:var(--muted);text-align:center;margin-top:12px}
+    .hidden{display:none}
+    input[type="text"]{padding:8px;border-radius:8px;border:1px solid #e6eef8;background:transparent}
+    .flex{display:flex;gap:8px;align-items:center}
+    .switch{display:inline-flex;align-items:center;gap:6px}
+    canvas{width:100%;height:160px;border-radius:8px;background:transparent}
+  </style>
+</head>
+<body>
+  <div class="app" id="app" role="application" aria-label="每日任务与计时">
+    <header>
+      <h1>Daily Check</h1>
+      <div class="controls">
+        <label class="switch small">
+          <input id="themeToggle" type="checkbox" aria-label="切换深色模式" />
+          深色
+        </label>
+        <button id="installBtn" class="ghost small hidden">加入主屏幕</button>
+      </div>
+    </header>
+
+    <section class="panel" id="tasksPanel" aria-labelledby="tasksTitle">
+      <div style="display:flex;gap:8px;margin-bottom:8px">
+        <input id="newTask" type="text" placeholder="添加新任务，按回车保存" style="flex:1" />
+        <button id="addTaskBtn" class="btn">添加</button>
+      </div>
+      <div id="tasksList" aria-live="polite"></div>
+      <div style="margin-top:10px" class="small">完成后打勾获得即时正反馈，数据保存在本设备。每日会在新的一天自动重置任务为未完成（保留历史统计）。</div>
+    </section>
+
+    <section class="panel">
+      <h3 style="margin:0 0 8px 0">计时器</h3>
+      <div class="timer">
+        <input id="timerMinutes" type="number" min="1" value="25" style="width:84px;padding:6px;border-radius:8px;border:1px solid #ddd" />
+        <div id="timeDisplay" style="font-weight:600;font-size:1.1rem">25:00</div>
+        <div class="flex" style="margin-left:auto">
+          <button id="startTimer" class="btn">开始</button>
+          <button id="pauseTimer" class="ghost">暂停</button>
+          <button id="resetTimer" class="ghost">重置</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h3 style="margin:0 0 8px 0">准确率与得分</h3>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <div class="stat">
+          <label class="small">正确数量</label><br/>
+          <input id="correctInput" type="number" min="0" value="0" style="width:120px;padding:6px;border-radius:8px;border:1px solid #ddd" />
+        </div>
+        <div class="stat">
+          <label class="small">总数</label><br/>
+          <input id="totalInput" type="number" min="0" value="0" style="width:120px;padding:6px;border-radius:8px;border:1px solid #ddd" />
+        </div>
+        <div class="stat">
+          <label class="small">得分</label><br/>
+          <input id="scoreInput" type="number" min="0" value="0" style="width:120px;padding:6px;border-radius:8px;border:1px solid #ddd" />
+        </div>
+        <div style="margin-left:auto">
+          <button id="saveStats" class="btn">保存今天统计</button>
+        </div>
+      </div>
+      <div style="margin-top:10px" class="stats">
+        <div class="panel stat">
+          <div class="small">准确率</div>
+          <div id="accuracy" style="font-weight:700">—</div>
+        </div>
+        <div class="panel stat">
+          <div class="small">当天得分</div>
+          <div id="todayScore" style="font-weight:700">—</div>
+        </div>
+        <div class="panel stat">
+          <div class="small">今日已完成任务</div>
+          <div id="doneCount" style="font-weight:700">0</div>
+        </div>
+      </div>
+
+      <div style="margin-top:12px">
+        <div class="small">过去7天统计（准确率：蓝线，得分：柱状）</div>
+        <canvas id="chartCanvas" width="800" height="160"></canvas>
+        <div style="margin-top:8px;text-align:right"><button id="refreshChart" class="ghost small">刷新图表</button></div>
+      </div>
+    </section>
+
+    <div class="confetti" id="confetti"></div>
+
+    <footer>Long press / 打开浏览器菜单 → 加入主屏幕 可把它放到平板桌面</footer>
+  </div>
+
+  <script>
+    // 功能：任务管理、打勾正反馈、深色模式、计时器、统计保存、每日自动重置、统计图表
+    const STORAGE_KEY = 'daily-check:v2';
+    const state = {
+      tasks: [],
+      stats: {}, // keyed by date yyyy-mm-dd
+      timer: {remaining:0, running:false, endAt:0},
+      lastActiveDate: null
+    };
+
+    // util
+    const todayKey = () => new Date().toISOString().slice(0,10);
+
+    function load(){
+      try{
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if(raw) Object.assign(state, JSON.parse(raw));
+      }catch(e){ console.warn(e) }
+    }
+    function save(){ localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); render(); }
+
+    // daily reset: if lastActiveDate != today, reset done flags
+    function handleDailyReset(){
+      const today = todayKey();
+      if(state.lastActiveDate !== today){
+        // preserve previous date in stats (already in state.stats if saved)
+        // reset tasks done flags for the new day
+        if(state.tasks && state.tasks.length>0){
+          state.tasks.forEach(t=> t.done = false);
+        }
+        state.lastActiveDate = today;
+        // ensure today's stats exists
+        if(!state.stats[today]) state.stats[today] = {score:0, correct:0, total:0, done: 0};
+        save();
+      }
+    }
+
+    // tasks
+    function renderTasks(){
+      const el = document.getElementById('tasksList');
+      el.innerHTML='';
+      if(state.tasks.length===0){ el.innerHTML='<div class="small">还没有任务，添加几个吧</div>'; return; }
+      state.tasks.forEach(t=>{
+        const row = document.createElement('div'); row.className='task-row';
+        const cb = document.createElement('input'); cb.type='checkbox'; cb.checked = !!t.done;
+        cb.addEventListener('change', ()=>{ t.done = cb.checked; if(cb.checked) onTaskDone(t); save(); });
+        const txt = document.createElement('div'); txt.className='task-text'; txt.textContent = t.text;
+        const del = document.createElement('button'); del.className='ghost small'; del.textContent='删除';
+        del.addEventListener('click', ()=>{ state.tasks = state.tasks.filter(x=>x.id!==t.id); save();});
+        row.append(cb, txt, del);
+        el.appendChild(row);
+      })
+      updateDoneCount();
+    }
+
+    function addTask(text){
+      if(!text) return;
+      state.tasks.push({id:Date.now(), text, done:false});
+      save();
+    }
+
+    function onTaskDone(task){
+      // 正反馈
+      spawnConfetti(10);
+      showToast(['太棒了！','完成了！','继续保持！'][Math.floor(Math.random()*3)]);
+      // 如果全部完成 -> 额外奖励
+      const allDone = state.tasks.length>0 && state.tasks.every(t=>t.done);
+      if(allDone){
+        spawnConfetti(30);
+        showToast('今日所有任务完成 🎉');
+      }
+      updateDoneCount();
+    }
+
+    function updateDoneCount(){
+      const done = state.tasks.filter(t=>t.done).length;
+      document.getElementById('doneCount').textContent = done;
+      // track per-day done count in stats
+      const key = todayKey();
+      if(!state.stats[key]) state.stats[key] = {score:0, correct:0, total:0, done:done};
+      else state.stats[key].done = done;
+      // avoid infinite save loop: save only when not in the middle of render
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      renderChart();
+    }
+
+    // confetti (emoji fall)
+    function spawnConfetti(n=20){
+      const box = document.getElementById('confetti');
+      const emojis = ['🎉','✨','🎈','⭐','👏','✅'];
+      for(let i=0;i<n;i++){
+        const el = document.createElement('div');
+        el.className='emoji';
+        el.style.left = Math.random()*100 + '%';
+        el.style.top = (-10 - Math.random()*20) + 'vh';
+        el.style.fontSize = (16 + Math.random()*28) + 'px';
+        el.textContent = emojis[Math.floor(Math.random()*emojis.length)];
+        box.appendChild(el);
+        setTimeout(()=> el.remove(), 2000 + Math.random()*800);
+      }
+    }
+
+    // toast
+    let toastTimer;
+    function showToast(msg){
+      let t = document.getElementById('app-toast');
+      if(!t){
+        t = document.createElement('div');
+        t.id='app-toast';
+        t.style.position='fixed';t.style.left='50%';t.style.transform='translateX(-50%)';
+        t.style.bottom='20px';t.style.background='rgba(0,0,0,0.8)';t.style.color='white';
+        t.style.padding='10px 14px';t.style.borderRadius='10px';t.style.zIndex=9999;
+        document.body.appendChild(t);
+      }
+      t.textContent = msg;
+      t.style.opacity = '1';
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(()=> t.style.opacity='0', 1600);
+    }
+
+    // stats
+    function updateStatsUI(){
+      const key = todayKey();
+      const s = state.stats[key] || {score:0,correct:0,total:0,done:0};
+      const acc = (s.total>0) ? Math.round((s.correct / s.total)*100) + '%' : '—';
+      document.getElementById('accuracy').textContent = acc;
+      document.getElementById('todayScore').textContent = s.score ?? 0;
+      document.getElementById('doneCount').textContent = s.done ?? 0;
+      // fill inputs
+      document.getElementById('correctInput').value = s.correct ?? 0;
+      document.getElementById('totalInput').value = s.total ?? 0;
+      document.getElementById('scoreInput').value = s.score ?? 0;
+    }
+
+    // simple canvas chart (last 7 days)
+    function getLastNDates(n=7){
+      const arr = [];
+      const today = new Date();
+      for(let i=n-1;i>=0;i--){
+        const d = new Date(); d.setDate(today.getDate() - i);
+        arr.push(d.toISOString().slice(0,10));
+      }
+      return arr;
+    }
+
+    function renderChart(){
+      const cvs = document.getElementById('chartCanvas');
+      if(!cvs) return;
+      const ctx = cvs.getContext('2d');
+      const dates = getLastNDates(7);
+      const scores = dates.map(d => (state.stats[d] && typeof state.stats[d].score === 'number') ? state.stats[d].score : 0);
+      const accs = dates.map(d => {
+        const s = state.stats[d];
+        if(!s || !s.total) return null;
+        return Math.round((s.correct / s.total) * 100);
+      });
+      // clear
+      ctx.clearRect(0,0,cvs.width,cvs.height);
+      // layout
+      const w = cvs.width; const h = cvs.height; const padding = 28; const chartW = w - padding*2; const chartH = h - padding*2;
+      // draw grid
+      ctx.strokeStyle = 'rgba(0,0,0,0.06)'; ctx.lineWidth = 1;
+      for(let i=0;i<=4;i++){
+        const y = padding + (chartH/4)*i;
+        ctx.beginPath(); ctx.moveTo(padding,y); ctx.lineTo(padding+chartW, y); ctx.stroke();
+      }
+      // draw bars (scores)
+      const maxScore = Math.max(1, ...scores);
+      const barW = chartW / (dates.length*2);
+      dates.forEach((d,i)=>{
+        const x = padding + i * (chartW / dates.length) + (chartW / dates.length - barW)/2;
+        const val = scores[i];
+        const hBar = (val / maxScore) * (chartH);
+        ctx.fillStyle = 'rgba(99,102,241,0.85)';
+        ctx.fillRect(x, padding + chartH - hBar, barW, hBar);
+        // label
+        ctx.fillStyle = 'var(--muted)'; ctx.font = '10px system-ui'; ctx.textAlign='center';
+        ctx.fillText(d.slice(5), x + barW/2, h - 6);
+      });
+      // draw line (accuracy)
+      const accVals = accs.map(a => a===null ? null : a);
+      // scale acc to chartH using 100 as max
+      ctx.beginPath();
+      let started=false;
+      for(let i=0;i<dates.length;i++){
+        if(accVals[i]===null) { started=false; continue; }
+        const x = padding + i * (chartW / dates.length) + (chartW / dates.length)/2;
+        const y = padding + chartH - (accVals[i]/100)*chartH;
+        if(!started){ ctx.moveTo(x,y); started=true; } else ctx.lineTo(x,y);
+      }
+      ctx.strokeStyle = '#06b6d4'; ctx.lineWidth = 2; ctx.stroke();
+      // dots
+      for(let i=0;i<dates.length;i++){
+        if(accVals[i]===null) continue;
+        const x = padding + i * (chartW / dates.length) + (chartW / dates.length)/2;
+        const y = padding + chartH - (accVals[i]/100)*chartH;
+        ctx.beginPath(); ctx.arc(x,y,3,0,Math.PI*2); ctx.fillStyle='#06b6d4'; ctx.fill();
+      }
+    }
+
+    // timer
+    let timerInterval = null;
+    function renderTime(ms){
+      const s = Math.ceil(ms/1000);
+      const mm = String(Math.floor(s/60)).padStart(2,'0');
+      const ss = String(s%60).padStart(2,'0');
+      document.getElementById('timeDisplay').textContent = mm+':'+ss;
+    }
+    function startTimer(minutes){
+      if(timerInterval) clearInterval(timerInterval);
+      state.timer.remaining = minutes*60*1000;
+      state.timer.endAt = Date.now() + state.timer.remaining;
+      state.timer.running = true;
+      timerInterval = setInterval(()=>{
+        const rem = state.timer.endAt - Date.now();
+        if(rem<=0){ stopTimer(true); renderTime(0); }
+        else { renderTime(rem); state.timer.remaining = rem; }
+      }, 250);
+      save();
+    }
+    function pauseTimer(){ if(timerInterval) clearInterval(timerInterval); state.timer.running=false; state.timer.remaining = Math.max(0, state.timer.endAt - Date.now()); save(); }
+    function resumeTimer(){ if(state.timer.remaining>0){ state.timer.endAt = Date.now() + state.timer.remaining; state.timer.running=true; timerInterval = setInterval(()=>{
+        const rem = state.timer.endAt - Date.now();
+        if(rem<=0){ stopTimer(true); renderTime(0); }
+        else { renderTime(rem); state.timer.remaining = rem; }
+      },250); save(); } }
+    function stopTimer(ended=false){
+      if(timerInterval) clearInterval(timerInterval);
+      state.timer.running=false;
+      state.timer.remaining = 0;
+      state.timer.endAt = 0;
+      save();
+      if(ended) { spawnConfetti(25); showToast('计时完成！休息一下 😊'); }
+    }
+
+    // event wiring
+    document.addEventListener('DOMContentLoaded', ()=>{
+      load();
+      // theme
+      const themeToggle = document.getElementById('themeToggle');
+      const savedTheme = localStorage.getItem('daily-check:theme');
+      const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+      const useDark = savedTheme ? savedTheme==='dark' : prefersDark;
+      setTheme(useDark ? 'dark':'light');
+      themeToggle.checked = (useDark);
+      themeToggle.addEventListener('change', ()=>{ setTheme(themeToggle.checked?'dark':'light'); });
+
+      // daily reset before render
+      handleDailyReset();
+
+      // tasks
+      document.getElementById('addTaskBtn').addEventListener('click', ()=>{ const v=document.getElementById('newTask').value.trim(); if(v){ addTask(v); document.getElementById('newTask').value=''; } });
+      document.getElementById('newTask').addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ document.getElementById('addTaskBtn').click(); }});
+      // stats save
+      document.getElementById('saveStats').addEventListener('click', ()=>{
+        const key = todayKey();
+        const correct = Math.max(0, parseInt(document.getElementById('correctInput').value||0));
+        const total = Math.max(0, parseInt(document.getElementById('totalInput').value||0));
+        const score = Math.max(0, parseInt(document.getElementById('scoreInput').value||0));
+        state.stats[key] = {...(state.stats[key]||{}), correct, total, score, done: state.stats[key]?.done || 0};
+        save();
+        updateStatsUI();
+        showToast('已保存统计');
+      });
+
+      // timer buttons
+      document.getElementById('startTimer').addEventListener('click', ()=>{
+        const m = Math.max(1, parseInt(document.getElementById('timerMinutes').value||25));
+        startTimer(m); renderTime(m*60*1000);
+      });
+      document.getElementById('pauseTimer').addEventListener('click', ()=>{ if(state.timer.running) pauseTimer(); else resumeTimer() });
+      document.getElementById('resetTimer').addEventListener('click', ()=>{ stopTimer(false); renderTime(0); });
+
+      document.getElementById('refreshChart').addEventListener('click', ()=> renderChart());
+
+      // initial render
+      renderTasks();
+      updateStatsUI();
+      renderTime(state.timer.remaining || (parseInt(document.getElementById('timerMinutes').value||25)*60*1000));
+      renderChart();
+      // resume running timer if needed
+      if(state.timer.running){
+        const rem = state.timer.endAt - Date.now();
+        if(rem<=0) stopTimer(true); else { state.timer.remaining = rem; resumeTimer(); }
+      }
+
+      // PWA install prompt handling
+      let deferredPrompt;
+      const installBtn = document.getElementById('installBtn');
+      window.addEventListener('beforeinstallprompt', (e)=>{
+        e.preventDefault();
+        deferredPrompt = e;
+        installBtn.classList.remove('hidden');
+        installBtn.addEventListener('click', async ()=>{
+          installBtn.classList.add('hidden');
+          deferredPrompt.prompt();
+          const choice = await deferredPrompt.userChoice;
+          deferredPrompt = null;
+        });
+      });
+
+      // service worker registration
+      if('serviceWorker' in navigator){
+        navigator.serviceWorker.register('service-worker.js').catch(e=>console.warn('sw failed',e));
+      }
+
+      // daily reset check at midnight (schedule next reset)
+      scheduleMidnightReset();
+    });
+
+    function scheduleMidnightReset(){
+      const now = new Date();
+      const next = new Date(); next.setHours(24,0,5,0); // a few seconds after midnight
+      const ms = next - now;
+      setTimeout(()=>{ handleDailyReset(); scheduleMidnightReset(); }, ms);
+    }
+
+    function setTheme(theme){
+      document.documentElement.setAttribute('data-theme', theme);
+      localStorage.setItem('daily-check:theme', theme);
+    }
+
+    function render(){ renderTasks(); updateStatsUI(); renderChart(); }
+
+    // expose some helpers to console for debugging
+    window._daily = {state, addTask, save, spawnConfetti};
+
+  </script>
+</body>
+</html>
